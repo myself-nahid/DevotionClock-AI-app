@@ -1,35 +1,48 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from app.models import DevotionalRequest, DevotionalResponse
-from services.llm_generator import generate_devotional_text 
-from services.tts_engine import generate_audio_file
+from services.llm_generator import generate_devotional_text
+from services.tts_engine import generate_and_save_audio
+from app.config import settings
 
-app = FastAPI(title="Devotional AI Engine")
+app = FastAPI()
+
+# --- IMPORTANT: Mount the static folder ---
+# This makes files in /static accessible via http://localhost:8000/static/filename.mp3
+app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 
 @app.post("/generate", response_model=DevotionalResponse)
 async def create_devotional(request: DevotionalRequest):
     try:
-        # Step 1: Generate Text
-        print(f"Generating text for theme: {request.theme}...")
+        # 1. Generate Text
+        print(f"Generating Text for {request.user_name}...")
         text_data = await generate_devotional_text(request)
         
-        # Step 2: Generate Audio
-        # We combine title + scripture + body for the audio generation
+        # 2. Prepare text for speech
         full_spoken_text = f"{text_data['title']}. {text_data['scripture']}. {text_data['content']}"
         
-        print("Generating audio (this may take 10-20 seconds)...")
-        audio_b64 = await generate_audio_file(full_spoken_text, request.gender_preference)
+        # 3. Generate and Save Audio
+        print("Generating Audio File...")
+        filename, duration = await generate_and_save_audio(full_spoken_text, request.gender_preference)
         
+        # 4. Construct Full URL
+        full_audio_url = f"{settings.BASE_URL}/static/{filename}"
+
+        print(f"Done! Audio available at: {full_audio_url}")
+
         return DevotionalResponse(
             title=text_data['title'],
             scripture=text_data['scripture'],
             body_text=text_data['content'],
-            audio_base64=audio_b64
+            audio_url=full_audio_url,
+            duration_seconds=duration
         )
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
+    # Reload=True is for development only
     uvicorn.run(app, host="0.0.0.0", port=8000)

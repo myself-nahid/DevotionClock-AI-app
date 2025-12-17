@@ -54,3 +54,8 @@ Thumbs.db
 .env
 __pycache__/
 *.pyc
+
+# ignore state files
+*.static
+static
+*.mp3
